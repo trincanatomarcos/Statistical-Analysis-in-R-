@@ -1,0 +1,798 @@
+---
+title: "Statistical Learning Project"
+author: "Marcos Leonardo Trincanato Perez"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r directory, echo=FALSE}
+rm(list=ls())
+```
+
+# 1. Introduction
+
+This analysis explore used BMW car data in UK to understand pricing trend. It examine how factors like year, mileage, engine size,fuel type affect prices. The purpose is to build a regression model to extract insight that can help buyers and sellers make better market decision.
+
+## 1.1 Dataset
+
+[**BMW Sales & Pricing Trends**](https://www.kaggle.com/datasets/ayeshaimran1619/bmw-sales-and-pricing-trends). This dataset, sourced from *kaggle* contains 10781 used bmw cars and includes 9 variables. The variables are as follows:
+
+-   **Model**: Bmw model of the car.
+-   **Year**: Manufacture year of the car.
+-   **Price**: Resale price of the car in pounds (£).
+-   **Transmission**: Transmission type of the car.
+-   **Mileage**: Total distance traveled by the car in miles.
+-   **FuelType**: Type of fuel of the car.
+-   **Tax**: The fee payed to the government when purchasing or selling a used car.
+-   **Mpg**: Miles-per-gallon, distance in miles that a car can travel on a gallon of fuel.
+-   **Engine Size**: Total volume of the engine in liters (L).
+
+## 1.2 Project Goal
+
+-   **Regression Model**: To understand factors that influence the resale price of a used car, I analyze price based on the available variables. This analysis offers not only to buyers and seller but also resale companies valuable insight that can support marketing and business decisions.
+
+# 2. Data Loading
+
+```{r, message=FALSE, warning=FALSE}
+library(lmtest) # for homoschedasticity test 
+library(nortest) # for normality test 
+library(ggplot2) # for data visualization 
+library(corrplot) # for correlation matrix 
+library(rsample) # for training the model 
+library(patchwork) # to arrange plots
+library(car) # for vif 
+```
+
+```{r}
+# load the data 
+bmw_data=read.csv("~/Downloads/bmw.csv",sep=',',header=TRUE)
+```
+
+```{r}
+#view the first 6 rows 
+head(bmw_data)
+```
+
+```{r}
+#dimension of the dataset
+dim(bmw_data)
+```
+
+```{r}
+#type of data we have in the dataset 
+str(bmw_data)
+```
+
+# 3. Data Cleaning
+
+## 3.1 Handling Missing values
+
+```{r}
+colSums(is.na(bmw_data)) 
+```
+
+No missing values found
+
+## 3.2 Handling duplicate rows
+
+```{r}
+sum(duplicated(bmw_data))
+```
+
+There are 117 duplicate rows
+
+```{r}
+bmw_data=bmw_data[!duplicated(bmw_data),] # eliminate duplicate rows 
+dim(bmw_data)
+```
+
+Now the dataset has 10664 rows and 9 features
+
+# 4 Data Preprocessing
+
+```{r}
+#summary statistics for all the data 
+summary(bmw_data)
+```
+
+I identified the categorical variables and encoded them using the function lapply and R factor data type
+
+```{r}
+col=c("model","transmission","fuelType") # variables involve 
+bmw_data[col]=lapply(bmw_data[col],as.factor)
+```
+
+From the summary variables like *price*, *mpg* and *engine Size* shows suspicious values that have to be checked.
+
+```{r}
+bmw_data[bmw_data$price > 100000,]
+```
+
+The price of a 2 series bmw build in 2015 with that *mileage* it's clearly a data error so i will proceed to eliminate it.
+
+```{r}
+sum(bmw_data$engineSize == 0)
+```
+
+47 observations have 0 engine size but it's physically impossible for a car so i will proceed to eliminate it.
+
+```{r}
+sum(bmw_data$mpg > 200)
+```
+
+a *mpg* of 470 it's unrealistic and impossible for a car according to real world data
+
+Since these are data errors and are not consistent with real word behaviour i eliminate it.
+
+```{r}
+bmw_data= bmw_data[bmw_data$price < 100000,]
+bmw_data = bmw_data[bmw_data$engineSize > 0,]
+bmw_data=bmw_data[bmw_data$mpg < 200,]
+```
+
+I check *fuelType* distributions to manage Electric category.
+
+```{r}
+table(bmw_data$fuelType)
+```
+
+Electric type has now zero observations but since there was only 3 observations i can eliminate and doesn't affect my analysis.
+
+```{r}
+#eliminate the categorical Electric 
+bmw_data$fuelType=droplevels(bmw_data$fuelType)
+#final structure 
+summary(bmw_data)
+```
+
+# 5. EDA (Explanatory Data Analysis)
+
+## 5.1 Categorical Variables
+
+```{r, echo=FALSE,message=FALSE}
+attach(bmw_data)
+```
+
+```{r,fig.height=3, fig.width=7,echo=FALSE}
+
+p1=ggplot(data=bmw_data,aes(fuelType))+geom_bar(aes(fill = fuelType))+
+  labs(title="Fuel Type Distribution",x='Fuel type',y='Count')
+
+p2=ggplot(data=bmw_data,aes(transmission))+geom_bar(aes(fill = transmission))+
+  labs(title="Transmission Distribution",x='Transmission',y='Count')
+
+p1+p2
+```
+
+**Insight 1**: *Diesel* and *Petrol* dominate used BMW market, indicating traditional fuel preference.
+
+**Insight 2**: *Semi-auto* follow by *Automatic* are the most frequently transmission indicating preference for comfort.
+
+```{r,message=FALSE,fig.height=4,fig.width=6,echo=FALSE}
+ggplot(data=bmw_data,aes(model))+geom_bar(aes(fill = model))+
+  labs(title="Model Distribution",x='Model',y='Count')+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+**Insight** : BMW 3 series and 1 series are the most frequently sold user cars, indicating high demand.
+
+## 5.2 Numerical Variables
+
+```{r,fig.height=3,echo=FALSE}
+ggplot(data=bmw_data,aes(price))+
+  geom_histogram(bins=40,col='white')+
+  labs(title='Price distribution',x='Price',y='Count')
+```
+
+**Insight**: Price distribution is right-skewed indicating that few people can afford luxury models, typical for car prices.The distribution suggest log transformation to reach approximately normality during model development.
+
+```{r,fig.width=9,fig.height=5,echo=FALSE}
+p1=ggplot(data=bmw_data,aes(factor(year)))+geom_bar()+
+  labs(title = 'Manufactured Year',x='Year',y='Count')+
+  theme(axis.text.x = element_text(angle = 90))
+
+p2=ggplot(data=bmw_data,aes(mileage))+
+  geom_histogram(,bins=30,col='white')+
+  labs(title='Mileage Distribution',x='Mileage',y='Count')
+
+(p1|p2)
+```
+
+**Insight 1**: Most of the cars were build in 2019 reflecting overall high demand for newer vehicle.
+
+**Insight 2**: The majority of the cars has a mileage below 50000 indicating preference for lightly used cars.
+
+```{r,fig.cap="Correlation matrix between numerical faetures",fig.height=4,echo=FALSE}
+R=cor(bmw_data[sapply(bmw_data,is.numeric)]) # correlation matrix 
+corrplot(R,method = "number")
+```
+
+**Insight**: *Year* and *Mileage* are the most correlated features with *Price* with a respective (positive correlation) and (negative correlation), engine size show a moderate positive correlation whereas *tax* and *mpg* have low correlation.
+
+```{r}
+#the five most expensive cars 
+head(bmw_data[order(bmw_data$price,decreasing = TRUE),],5)
+```
+
+**Insight**: High-end and performance BMW models retain premium resale value even in used markets.
+
+## 5.3 Relationship with target variable (Price)
+
+```{r,fig.width=10,fig.height=4,echo=FALSE}
+#transmission type affect prices? 
+p1=ggplot(data=bmw_data,aes(x=transmission,y=price,fill = transmission))+
+  geom_boxplot()+
+  labs(title='Price by Transmission',x='Transmission',y='Price')
+
+#fuel type affect prices? 
+p2=ggplot(data=bmw_data,aes(x=fuelType,y=price,fill = fuelType))+
+  geom_boxplot()+
+  labs(title='Price by Fuel type',x='Fuel type',y='Price')
+
+(p1|p2)
+```
+
+**Insight 1**: Semi-auto transmission cars are priced higher,reflecting preference for comfort.
+
+**Insight 2**: Hybrid cars are priced higher reflecting their complex engineering and manufacturing.
+
+```{r,fig.height=3,fig.width=6,echo=FALSE}
+ggplot(data=bmw_data,aes(x=model,y=price,fill = model))+
+  geom_boxplot()+
+  labs(title='Price by Model',x='Model',y='Price')+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+**Insight**: Mostly of BMW series models are cheaper than luxury models as M or Suv reflecting high value in used car market.
+
+```{r, message=FALSE,fig.height=3,echo=FALSE}
+ggplot(data=bmw_data,aes(x=mileage,y=price))+
+  geom_point()+
+  geom_smooth(se=FALSE)+
+  labs(title='Price vs Mileage',x='Mileage',y='Price')
+```
+
+**Insight**: Cars with higher mileage tend to have lower prices , showing depreciation with usage.
+
+```{r,message=FALSE,fig.height=3,echo=FALSE}
+ggplot(data=bmw_data,aes(x=year,y=price))+
+  geom_point()+
+  geom_smooth(se=FALSE)+
+  labs(title='Price vs Year',x='Year',y='Price')
+```
+
+**Insight**: Newer cars have generally higher resale value compared to other models.
+
+```{r, message=FALSE,fig.height=5,fig.width=12,echo=FALSE}
+p1=ggplot(data=bmw_data,aes(x=engineSize,y=price,color = fuelType))+
+  geom_point()+
+  labs(title='Price vs Engine Size',x='Engine Size',y='Price')
+
+p2=ggplot(data=bmw_data,aes(x=mpg,y=price,color = fuelType))+
+  geom_point()+
+  labs(title='Price vs Mpg',x='Mpg',y='Price')
+
+(p1|p2)
+```
+
+**Insight 1**: Not a clearly linear relationship between price and engine size but petrol fuel tend to have a high engine size.
+
+**Insight 2**: Although there is not a linear relationship between price and mpg, mostly of hybrid cars have a higher mpg reflecting more fuel-efficiency than traditional ones.
+
+From the relationship between price and mpg some observations with hybrid fuel aren't inconsistent with the behave of the rest of data.
+
+```{r}
+sum(bmw_data$mpg < 10)
+```
+
+Hybrid car has a high mpg than diesel or petrol car so this observations are data error or information that doesn't represent real world behaviour so i will eliminate it from the data.
+
+```{r}
+bmw_data=bmw_data[bmw_data$mpg > 10,]
+```
+
+How much data i removed?
+
+```{r}
+cat("Percentage of data lost:",(10781-10594)/10781)
+```
+
+Around 1.73% of data removed a really small amount and is unlikely to be problematic by itself.
+
+# 6. Data preparation
+
+```{r}
+set.seed(42)
+split = initial_split(bmw_data, prop = 0.8)# splitting the data
+train_data = training(split) # 80% for training 
+test_data = testing(split) # 20% for test 
+```
+
+```{r}
+cat("Observations on traning data:",nrow(train_data))
+cat("Observations on test data:", nrow(test_data))
+```
+
+## 6.1 Feature Engineering on training data
+
+```{r}
+# log transformation for the price 
+train_data['log_price']=log(train_data$price)
+```
+
+```{r}
+# feature engineering on the year feature 
+train_data['car_age']=2020-train_data$year
+train_data$year = NULL # drop the column year 
+```
+
+**Comment**:I decide to convert the variable year since the data is very unbalanced, mostly of the observations are from 2019, while years before 2010 have fewer values. Using car_age the numeric relationship with price remain intact while interpretation became easier.
+
+```{r}
+train_data$model=relevel(train_data$model, ref =" 3 Series")
+```
+
+**Comment**: For the categorical variable model i use as a reference category 3 series since is the one with most demand.
+
+```{r}
+head(train_data) # train data after transformations 
+```
+
+# 7. Modelling
+
+## 7.1 Multiple Linear Regression Model
+
+```{r}
+# I start using all the predictors 
+lm_model=lm(log_price~.-price, data = train_data)
+round(summary(lm_model)$adj.r.squared,4)
+round(summary(lm_model)$sigma,4)
+```
+
+**Comment**: The model has a R-square of 0.9355 meaning it can explain around 93% of log_price variability, with a standard error of 0.12.
+
+Does the model meet the classical linear regression assumptions ?
+
+# 7.2 Diagnostic
+
+## 7.2.1 Linearity and Homoschedasticity
+
+```{r,message=FALSE, warning=FALSE,fig.height=4,echo=FALSE}
+
+p1=ggplot(data=train_data, aes(x=lm_model$fitted.values, y=lm_model$residuals))+
+  geom_point()+
+  geom_smooth(se=FALSE,color='red')+
+  labs(title="Residual vs Fitted values", x="Fitted Values", y="Residuals")
+
+p2=ggplot(data=train_data, aes(x=train_data$mileage, y=lm_model$residuals))+
+  geom_point()+
+  geom_smooth(se=FALSE,color='red')+
+  labs(title="Residual vs Mileage", x="Mileage", y="Residuals")
+
+p3=ggplot(data=train_data, aes(x=train_data$car_age, y=lm_model$residuals))+
+  geom_point()+
+  geom_smooth(se=FALSE,color='red')+
+  labs(title="Residual vs Car_age", x="car_age", y="Residuals")
+
+p4=ggplot(data=train_data, aes(x=engineSize,y=lm_model$residuals))+
+  geom_point()+
+  geom_smooth(se=FALSE,color='red')+
+  labs(title="Residuals vs Engine Size", x="Engine Size", y="Residuals")
+
+p1+p2+p3+p4
+```
+
+**Comment**: Relationship between price and some predictors like car_age and engine size are not perfect linear and show curvature as well with fitted values.Variability is not constant, more spread at higher values.
+
+```{r,fig.height=3,echo=FALSE}
+ggplot(data=train_data, aes(x=price, y=exp(lm_model$fitted.values)))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  labs(title="Actual price vs Predicted price", x="Actual price", y="Predicted Price")
+```
+
+**Comment**: The graph reflect our previous finding, price variability is not constant, at a higher prices the spread become wider. The model predicts a 20000£ more confidently than a 70000£ one.
+
+```{r}
+#Breusch-Pagan homoscedasticity test
+bptest(lm_model)
+```
+
+**Comment**:The test reject the null hypothesis that so there is evidence of heteroscedasticity.
+
+## 7.2.2 Normality
+
+```{r,message=FALSE, warning=FALSE,fig.height=3,fig.cap="Histogram of Studentizade Residulas compare with Normal Standard Distribution (red line)",echo=FALSE}
+ggplot(data=train_data,aes(rstudent(lm_model)))+
+  geom_histogram(aes(y=after_stat(density)),bins=50,col='white')+
+  stat_function(fun = dnorm, args = list(mean=0, sd=1), col='red',linewidth=1)+
+  labs(x='Studentised Residuals',y='Density')
+```
+
+```{r,fig.height=3,fig.cap="Q-Q plot of studentizade residuals",echo=FALSE}
+ggplot(data=train_data,aes(sample=rstudent(lm_model)))+
+  stat_qq()+
+  stat_qq_line()+
+  labs(title = "Q-Q Residuals",x="Theoretical Quantiles", y="Empircial Quantiles")
+```
+
+**Comment**: Residuals seems are approximately normal in the centre but tails show some deviations due to extreme values as we can see also from q-q plot.
+
+```{r}
+#Anderson-Darling normality test
+ad.test(rstudent(lm_model))
+```
+
+**Comment**: The test reject the null hypothesis of normality.
+
+## 7.2.3 Multicollinearity
+
+```{r,warning=FALSE}
+vif(lm_model)
+```
+
+**Comment**: VIF scores are mostly below 5 except for mpg that shows a moderate score but overall multicollinearity in not a serious concern.
+
+## 7.2.4 Autocorrelation
+
+```{r,fig.height=4,echo=FALSE,fig.cap= "ACF (left) and PACF (right) of standardised residuals"}
+par(mfrow=c(1,2))
+acf(rstandard(lm_model),main="")
+pacf(rstandard(lm_model),main="")  
+```
+
+**Comment**: Plots show that approximately residuals are uncorrelated with each other.
+
+```{r}
+#Ljung-Box test for autocorrelation 
+Box.test(rstandard(lm_model),type = "Ljung-Box")
+```
+
+**Comment**: The test don't rejected the null hypothesis so there is no evidence of autocorrelation.
+
+**Insight from Diagnostic**
+
+**Heteroscedasticity and Linearity** The Breusch-Pagan test was highly significant, meaning residuals are more spread at higher fitted values confirming non-constant variance behaviour. Linear specification of some predictors (mileage and car_age) is not fully correct.
+
+**Perfect normality of residuals** is also mildly violated at the tails due to the presence of extreme values common in any heavy-tailed distribution.
+
+# 7.3 Model Improvement and Selection
+
+## 7.3.1 Polynomial Regression
+
+To account for more complex and non-linear relation between price and the predictors , i choose a polynomial regression model to possibly improve the fit of the model to the data.To achieve this, i will take the square of car_age and engine size.
+
+```{r}
+poly_model=lm(log_price~poly(car_age,2,raw=TRUE)+mileage
+              +poly(engineSize,2,raw=TRUE)+fuelType+
+              transmission+model+mpg+tax,data = train_data)
+anova(lm_model,poly_model) # F-test for nested models
+round(summary(poly_model)$adj.r.squared,4)
+```
+
+Even the anova output show that quadratic terms are statistically significant at 0.001% level, form the all summary the quadratic term for car_age was not significant and the practical improvement from the quadratic term in engineSize is minimal.
+
+## 7.3.2 Interactions termns
+
+Some variables may don't act independently.
+
+Interaction 1 : *mileage* \* *transmission* Automatic may depreciate differently than manuals over time
+
+Interaction 2: *mileage* \* *fuelType* High-mileage for hybrids may less damaging resale value than diesels.
+
+Interaction 3: *car_age* \* *fuelType* Hybrid may depreciate differently than Diesel and Petrol
+
+```{r}
+model_interact=lm(log_price~mileage*transmission+
+                engineSize*fuelType+car_age*fuelType+model+
+                tax+mpg,data = train_data)
+anova(lm_model,model_interact)
+round(summary(model_interact)$adj.r.squared,4)
+```
+
+From the summary all the interactions are statistically significant at 0.001% level in at least one category so there is difference in price depreciation between type of transmission and fuel type. The anova output confirm my conclusions.
+
+## 7.3.4 Final Model
+
+The final model will have all the interactions that can take into account non-linearity between *log_price* and predictors. For *engineSize* i use log transformation for e better interpretation and avoid complexity of polynomial terms.
+
+```{r}
+final_model=lm(log_price~car_age*fuelType+mpg+tax+model+
+               mileage*transmission+mileage*fuelType+
+               log(engineSize),data = train_data)
+round(summary(final_model)$adj.r.squared,4)
+round(summary(final_model)$sigma,4)
+```
+
+# 8.Variable Selection
+
+To further improve the model, i used backward feature selection, which iteratively removes the variable that minimized the AIC the most.
+
+```{r}
+backward_model=step(final_model,direction = "backward")
+```
+
+```{r}
+summary(backward_model)$adj.r.squared
+```
+
+After backward elimination the Adjusted R-square remains at 0.937, showing no improvement over the current final model.However i decided to explore in depth two variables : *mpg* and *tax*.
+
+## 8.1 Model without MPG
+
+```{r}
+final_model_no_mpg=lm(log_price~car_age*fuelType+tax+model+
+                mileage*transmission+log(engineSize)+
+                mileage*fuelType,data=train_data)
+
+round(summary(final_model_no_mpg)$adj.r.squared,4)
+round(summary(final_model)$adj.r.squared,4)-round(summary(final_model_no_mpg)$adj.r.squared,4)
+
+cbind(AIC(final_model,final_model_no_mpg),BIC(final_model,final_model_no_mpg))
+```
+
+Even the variable *mpg* show a moderate VIF (5.25) it's importance is relevant for the model. Without it the R-square drop significantly : AIC and BIC criterion suggested to not drop the variable.
+
+## 8.2 Model without TAX
+
+```{r}
+model_no_tax=lm(log_price~car_age*fuelType+mpg+model+
+                mileage*transmission+log(engineSize)+
+                mileage*fuelType,data = train_data)
+
+round(summary(model_no_tax)$adj.r.squared,4)
+round(summary(final_model)$adj.r.squared,4)-round(summary(model_no_tax)$adj.r.squared,4)
+
+cbind(AIC(final_model,model_no_tax),BIC(final_model,model_no_tax))
+```
+
+Unlike *mpg*, variable *tax* show a insignificant drop in R-square (around 0.0001), the two criterion suggest that a possibly drop of the variable.
+
+## 8.3 Final Best Model
+
+To get a more parsimonious model i decided to removed *tax* variable and ended up in the following final model.
+
+```{r}
+best_model=lm(log_price~car_age*fuelType+
+              mileage*transmission+mpg+mileage*fuelType+
+              log(engineSize)+model,data = train_data)
+round(summary(best_model)$adj.r.squared,4)
+```
+
+```{r,echo=FALSE,fig.width=6,fig.height=5}
+par(mfrow=c(2,2))
+plot(best_model)
+```
+
+```{r}
+bptest(best_model)
+```
+
+The homoscedasticity test is still significance.
+
+But if we look at residuals in differents price bands we notice this.
+
+```{r,include=FALSE}
+price_band=cut(train_data$price,breaks=c(0, 15000, 25000, 40000, 60000, Inf),
+           labels = c("Budget <15£", "Mid 15-25£",
+           "Upper 25-40£","Luxury 40-60£","Ultra >60£"))
+```
+
+```{r,echo=FALSE,fig.height=3}
+std_residuals=rstandard(best_model)
+ggplot(data=train_data, aes(y=std_residuals,x=price_band,fill = price_band))+
+  geom_boxplot()+
+  geom_hline(yintercept = 0, color='red',linetype="dashed")+
+  labs(title="Std_Residuals by Price band",y="Std_Residuals",x="Price Band")
+```
+
+Standardise residuals variability grows with car value this asymmetry create structural price dispersion. Luxury segment is characterized by few buyers and sellers causing more price volatility.
+
+```{r,echo=FALSE}
+segment_cars=data.frame(aggregate(price~price_band, data = train_data, FUN = length))
+names(segment_cars)[2]="N"
+segment_cars$percentage=round(segment_cars$N/sum(segment_cars$N),2)
+segment_cars
+```
+
+Another issue is sampling bias : model is built on 90% mid-to budget data and only 7% on luxury this is why struggles to predict high prices so a data quality and representativeness is involve.
+
+# 9. Treatment of Outliers, High Leverage and Influential Points
+
+As a final step we inspect potential influential points, outliers and high leverage using Cook's distance and studentised residuals.
+
+```{r}
+#Outliers in Y
+stud_residuals=rstudent(best_model)
+outliers_y=train_data[abs(stud_residuals) > 3,]
+#High Leverage 
+leverage=hatvalues(best_model)
+p=length(coef(best_model))
+n=nrow(train_data)
+high_leverage=train_data[leverage > 3*p/n,]
+#Influential Points
+cooks_d=cooks.distance(best_model)
+influential=train_data[cooks_d > 4/n,]
+```
+
+```{r,echo=FALSE}
+points=data.frame(N=c(nrow(outliers_y),nrow(high_leverage),nrow(influential)))
+points$percentage= round((points$N / nrow(train_data))*100,1)
+row.names(points)=c("Studentised outliers (|resid| > 3):",
+                    "High Leverage (> 3p/n):","Influential Cook's D > 4/n:")
+points
+```
+
+384 influential observations are notable, but since these are not data error but a real structure of the data so i will not removed this observations.
+
+```{r,echo=FALSE,fig.height=3}
+ggplot(data = train_data, aes(x = 1:nrow(train_data), y = cooks_d)) +
+  geom_point(aes(colour = model),size=2) +
+  geom_hline(yintercept = 4/n, colour = "black", linetype = "dashed") +
+  labs(title = "Cook's Distance",x = "Observation index", y = "Cook's D")
+```
+
+The graph show that most of the influential points are concentrated in the luxury segment, M series , X series where the model has few training examples.
+
+# 9. Model Evaluation
+
+```{r}
+test_data['car_age']=2020-test_data$year
+test_data$year = NULL
+test_data['log_price']=log(test_data$price)
+head(test_data)
+```
+
+I use residual standard error of the models to get mean price prediction since applying exp() to *log(price)* gives me median price distribution and my conclusions will be incorrect and bias.
+
+```{r}
+sigma2_lm=summary(lm_model)$sigma^2 # variance of the baseline model
+sigma2_best=summary(best_model)$sigma^2 # variance of the best model
+```
+
+```{r}
+# log_price and raw price predictions (baseline model)
+log_predictions_lm=predict(lm_model, newdata = test_data)
+price_predictions_lm=exp(log_predictions_lm + sigma2_lm)
+
+#log_price and raw price predictions (best_model)
+log_predictions_best=predict(best_model, newdata = test_data)
+price_predictions_best=exp(log_predictions_best + sigma2_best)
+```
+
+```{r,include=FALSE}
+TSS=sum((test_data$log_price-mean(test_data$log_price))^2)
+residuals_best=test_data$log_price-log_predictions_best
+residuals_lm=test_data$log_price-log_predictions_lm
+RSS_lm=sum((residuals_lm)^2)
+RSS_best=sum((residuals_best)^2)
+```
+
+## 9.1 Performance Metrics
+
+```{r}
+RMSE_lm=round(sqrt(mean((test_data$price-price_predictions_lm)^2)))
+MAE_lm=round(mean(abs(test_data$price-price_predictions_lm)))
+R2_test_lm=round(1-(RSS_lm/TSS),4)
+
+RMSE_best=round(sqrt(mean((test_data$price-price_predictions_best)^2)))
+MAE_best=round(mean(abs(test_data$price-price_predictions_best)))
+R2_test_best=round(1-(RSS_best/TSS),4)
+```
+
+```{r,echo=FALSE}
+results=data.frame(Model=c("baseline model", "best model"),
+                   R2_test=c(R2_test_lm,R2_test_best),
+                   RSME = c(RMSE_lm,RMSE_best),
+                   MAE=c(MAE_lm,MAE_best))
+knitr::kable(results,caption = "Perfromance vs Baseline")
+```
+
+The best model achieve a R-square around 94% with a really small gap with train R-square, so the model generalises cleanly with no overfitting.It's show improvements compared to the baseline with a mean absolute error of 2081£, the reduction is small but it capture real structure of the data.
+
+# 10. Interpretation
+
+I will now analyze which variables had the greatest impact on the final regression model and specially how they influence the outcome (i use a trade off between statistical significance and economic interpretation).
+
+Since the target variable is *log(price)* every coefficient will be interpreted through: *% change in price = (exp(coefficient)-1) \** 100\*.
+
+## Numeric Variables
+
+```{r}
+#Simple Continuous Variables 
+coef_age=coef(best_model)["car_age"]
+coef_mpg=coef(best_model)["mpg"]
+
+cat("CAR_AGE: each +1 year ->", round((exp(coef_age)-1)*100,2), "% price change\n")
+cat("MPG: each +1 mpg ->", round((exp(coef_mpg)-1)*100,2), "% price change\n")  
+```
+
+**Insight 1**: A one unit increase in fuel efficiency is associated a 0.35% decrease in price holding all else constant.This is economically plausible , higher *mpg* correlates with smaller engines, which are less desirable in the BMW market.
+
+**Insight 2**: Each additional year of the car is associated with a 10.11% decrease in price holding all else constant, economically plausible and consistent with real world behaviour.
+
+```{r}
+#Log variable
+coef_engine=coef(best_model)["log(engineSize)"]
+cat("Engine Size Elasticity:", round(coef_engine,2))  
+```
+
+**Insight**: A 1% increase in *engineSize* is associated with a 0.39% increase in price. This elasticity reflect the direct link between engine displacement and performance prestige in the BMW range.
+
+## 10.2 Categorical Variables
+
+```{r}
+coef_transmission=coef(best_model)["transmissionManual"]
+cat("Transmission Manual ->",round((exp(coef_transmission)-1)*100,2), "%","vs Automatic")  
+```
+
+**Insight**: Holding all the variables constant, a Manual transmission BMWs are priced 7.04% lower than equivalent automatic.
+
+```{r}
+coef_fuel=coef(best_model)[c("fuelTypeHybrid","fuelTypePetrol")]
+cat("Hybrid Cars ->",round((exp(coef_fuel)[1]-1)*100,2), "%","vs Diesel\n")  
+cat("Petrol Cars ->",round((exp(coef_fuel)[2]-1)*100,2), "%","vs Diesel\n") 
+```
+
+**Insight 1**: Relative to an equivalent Diesel BMW, Hybrid models command a substantial 30.94% price premium, reflecting their powertrain desirability and lower running costs.
+
+**Insight 2**: Holding all the variables constant Petrol BMWS are priced 2.46% lower than equivalent Diesels.
+
+```{r}
+coefs_model=coef(best_model)[11:32]
+categories_model=data.frame(Models=c("3 Model Series (ref)",
+                            names(coef(best_model)[11:32])),
+              change=c(0,round((exp(coefs_model)-1)*100,1)),row.names = NULL)
+```
+
+```{r,echo=FALSE,fig.width=10}
+ggplot(data =categories_model,aes(x=change,y=Models))+
+  geom_col(aes(fill = change >= 0 ),width=0.65)+
+  geom_vline(xintercept = 0,linetype="dashed",color='grey')+
+  geom_text(aes(label = ifelse(change > 0, paste0("+",change, "%"),paste0(change, "%")),
+                hjust = ifelse(change >= 0, -0.1, 1.1)),size = 3)+
+  scale_fill_manual(values = c("TRUE" = "darkgreen",
+                               "FALSE" = "red"),guide="none")+
+  labs(title="Price Premium / discount by BMW series",
+       x="% difference",y="model")
+```
+
+**Insight**:Controlling for car_age, mileage, engine size, fuel type and transmission, an 8 Series commands a 80% price premium over a comparable 3 Series. This reflect brand tier positioning.
+
+## 10.3 Interaction Terms
+
+```{r}
+b_age = coef(best_model)["car_age"]
+b_hybrid_age  = coef(best_model)["car_age:fuelTypeHybrid"]
+b_petrol_age = coef(best_model)["car_age:fuelTypePetrol"]
+# Diesel is the base in the interaction 
+
+# Total depreciation rate per year for each fuel type
+rate_diesel = b_age                          # reference
+rate_petrol = b_age + b_petrol_age
+rate_hybrid = b_age + b_hybrid_age
+
+cat("Annual depreciation rate (% per year of age):\n")
+cat("Petrol:", round((exp(rate_petrol) - 1) * 100, 2), "%\n")
+cat("Diesel:", round((exp(rate_diesel) - 1) * 100, 2), "%\n")
+cat("Hybrid:", round((exp(rate_hybrid) - 1) * 100, 2), "%\n")
+```
+
+**Insight**: The interaction between *car_age* and *fuelType* captures structurally different depreciation rates across powertrain technologies. Diesel BMWs depreciate at approximately 10% per additional year, faster than petrol equivalents (around 9%). Hybrid models show the slowest depreciation (around 7%), reflecting sustained demand driven by lower running costs despite their higher initial price.
+
+# 11. Conclusion and Further Improvements
+
+Heteroscedasticity persists and has a dual origin. First, a statistical component arising from the underrepresentation of luxury vehicles in the sample.Second and more fundamentally, a structural component intrinsic to the used car market itself: information asymmetry between buyers and sellers, thin market dynamics in the luxury segment and subjective valuation at high prices.This latter source of variance cannot be eliminated through modelling alone, as it reflects price uncertainty in the market.
+
+Despite this, the model in test data show a R-square around 94% (very strong) meaning 94% of log_price variation is explain using only variables a used car buyer would know, reflecting real economics relationships. Heteroscedasticity inflates standard errors but it doesn't bias the coefficient estimates themselves. So the interpretations are trustworthy. With more than 8000 observations the Central Limit Theorem protect my coefficient estimates and the model is robust to mild normality violations. It's interpretable: a used car buyer or pricing analyst can read coefficients directly.
+
+Further improvements can be done using:
+
+Robust Standard Errors (HC3) to correct inference without changing model at all.
+
+Robust regression to handling extreme real outliers without eliminate them.
+
+Sampling bias can be partially addressed trough stratified data collection.
