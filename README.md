@@ -1,2 +1,2 @@
-# Statistical-Analysis-in-R-
-BMW price analysis 
+# Statistical_Analysis_on_BMW_Price
+BMW price analsis 
