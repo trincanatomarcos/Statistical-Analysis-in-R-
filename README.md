@@ -1,4 +1,4 @@
-# Statistical_Analysis_on_BMW_Price
+# Statistical_Analysis_on_BMW_Cars_Price
 Academic project for the *Applied Econometrics* course of the Bsc in Statistics.
 
 
