@@ -1,4 +1,4 @@
-# Statistical_Analysis_on_BMW_Cars_Price
+# Used BMW Price Modeling - Regression & Diagnostics in R 
 Academic project for the *Applied Econometrics* course of the Bsc in Statistics.
 
 
