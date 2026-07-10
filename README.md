@@ -9,7 +9,7 @@ Using 10781 UK used BMW listings, this project builds a regression  odel go expl
 
 ## Methodology 
 Data loading -> Cleaning -> Preprocessing -> EDA -> Feature Engineering -> Model Building -> Diagnostics 
--> Model Improvement -> Variable Selection -> Outlier/Influence Analysis -> Evaluation -> Economic Intepretation
+-> Model Improvement -> Variable Selection -> Outlier/Influence Analysis -> Evaluation -> Economic Interpretation
 
 ## Tools
 -**R**: The programming language used for this project is *R*. The main packages used are *ggplot2* for data visualization, *corrplot* for correlation matrix, *rsample* for training the model, *patchwork* to arrange plots, *car* for vif. 
