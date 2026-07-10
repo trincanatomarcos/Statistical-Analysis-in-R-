@@ -14,9 +14,5 @@ Data loading -> Cleaning -> Preprocessing -> EDA -> Feature Engineering -> Model
 ## Tools
 -**R**: The programming language used for this project is *R*. The main packages used are *ggplot2* for data visualization, *corrplot* for correlation matrix, *rsample* for training the model, *patchwork* to arrange plots, *car* for vif. 
 
-## Project Goals 
-The main objective of this project is: 
-
-**Regression Model**: To understand factors that influence the resale price of a used cars, I analyze price based on the available variables.This analysis offers not only to buyers to understand and seller but also resale companies valuable insights that can support marketing and business decisions.
 
 
